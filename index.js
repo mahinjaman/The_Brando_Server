@@ -129,7 +129,6 @@ async function run() {
             // if(req.user != process.env.SECURITY_JWT_TOKEN){
             //     return res.status(403).send({ message: 'Access denied. Invalid token.' });
             // }
-            console.log(req.user);
             const id = req.params.id;
             const query = { _id: new ObjectId(id) };
             const result = await roomsCollections.findOne(query)
@@ -162,7 +161,7 @@ async function run() {
 
         app.post('/booking', async (req, res) => {
             const room = await req.body;
-            const filter = { _id: new ObjectId(room.room_id) };
+            const filter = { _id: new ObjectId(room?.room_id) };
             const options = { upsert: true };
             const updateStatus = {
                 $set: { status: 'booked' }
@@ -191,10 +190,8 @@ async function run() {
 
         // update booking status confirmed
 
-        app.put('/booking_confirmed/:id', async (req, res) => {
-            const currentUser = req.body;
+        app.put('/bookingConfirmed/:id', async (req, res) => {
             const id = req.params.id;
-            const orderStatus = req.query?.status;
             const query = { _id: new ObjectId(id) }
             const updateStatus = {
                 $set: { orderStatus: 'Confirmed' }
