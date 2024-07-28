@@ -9,7 +9,8 @@ const cookieParser = require('cookie-parser')
 
 app.use(cors({
     credentials: true,
-    origin: ['http://localhost:5173', 'http://localhost:5174']
+    // origin: ['http://localhost:5173', 'http://localhost:5174']
+    origin: ['https://the-brando.web.app', 'https://console.firebase.google.com/project/the-brando/overview']
 }))
 app.use(express.json())
 app.use(cookieParser())
@@ -233,8 +234,8 @@ async function run() {
             return res.send(roomUpdateResult)
         })
 
-        await client.db("admin").command({ ping: 1 });
-        console.log("Pinged your deployment. You successfully connected to MongoDB!");
+        // await client.db("admin").command({ ping: 1 });
+        // console.log("Pinged your deployment. You successfully connected to MongoDB!");
     } finally {
         // Ensures that the client will close when you finish/error
     }
