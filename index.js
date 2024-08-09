@@ -205,7 +205,7 @@ async function run() {
         app.put('/booking_cancelled/:id', verifyUser, async (req, res) => {
             const currentUser = req.body;
             const id = req.params.id;
-            
+
             if (currentUser?.email != req.query?.email) {
                 res.status(403).send({ message: 'Access denied. Invalid token.' });
             }
