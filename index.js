@@ -9,8 +9,7 @@ const cookieParser = require('cookie-parser')
 
 app.use(cors({
     credentials: true,
-    // origin: ['http://localhost:5173', 'http://localhost:5174']
-    origin: ['https://the-brando.web.app', 'https://console.firebase.google.com/project/the-brando/overview']
+    origin: ['https://the-brando.web.app', 'https://console.firebase.google.com/project/the-brando/overview','http://localhost:5173', 'http://localhost:5174']
 }))
 app.use(express.json())
 app.use(cookieParser())
@@ -95,7 +94,7 @@ async function run() {
         // get rooms from mongo_db
 
         app.get('/rooms', async (req, res) => {
-            const page = parseInt(req.query.page);
+            const page =  parseInt(req.query.page);
             const limit = parseInt(req.query.limit);
             const skip = (page - 1) * limit;
             const rooms = await roomsCollections.find()
@@ -162,12 +161,6 @@ async function run() {
 
         app.post('/booking', async (req, res) => {
             const room = await req.body;
-            const filter = { _id: new ObjectId(room?.room_id) };
-            const options = { upsert: true };
-            const updateStatus = {
-                $set: { status: 'booked' }
-            }
-            const updateRoom = await roomsCollections.updateOne(filter, updateStatus, options);
             const result = await bookingCollections.insertOne(room);
             res.send(result);
         })
@@ -175,13 +168,14 @@ async function run() {
         // get booking rooms for the current user
 
         app.get('/booking', verifyUser, async (req, res) => {
-            const currentUser = req.user;
+            const currentUser = req?.user;
+            
             if (currentUser?.email != req.query.email) {
                 res.status(403).send({ message: 'Access denied. Invalid token.' });
             }
             let query = {};
             if (req.query?.email) {
-                query = { email: req.query?.email }
+                query = { email: req.query?.email , orderStatus:{$ne:'Cancelled'}}
             }
 
             const result = await bookingCollections.find(query).toArray()
@@ -224,11 +218,12 @@ async function run() {
 
         // Room Status Update Available
 
-        app.patch('/room_available/:id', async (req, res) => {
+        app.patch('/room_status/:id', async (req, res) => {
             const id = req.params?.id;
             const roomFilter = { _id: new ObjectId(id) };
+            const status = req.query.status;
             const roomUpdateStatus = {
-                $set: { status: 'Available' }
+                $set: { status }
             }
             const roomUpdateResult = await roomsCollections.updateOne(roomFilter, roomUpdateStatus);
             return res.send(roomUpdateResult)
