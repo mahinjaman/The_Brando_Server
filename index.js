@@ -30,6 +30,13 @@ const verifyUser = (req, res, next) => {
     })
 }
 
+
+
+
+
+
+
+
 // routes
 
 app.get('/', (req, res) => {
@@ -64,6 +71,24 @@ async function run() {
     const bookingCollections = client.db('TheBrando').collection('booking');
     const userCollections = client.db('TheBrando').collection('users');
 
+
+    const verifyAdmin = async (req, res, next) => {
+        const token = req.cookies?.token;
+        if (!token) {
+            return res.status(401).send({ message: 'Unauthorized' })
+        }
+        const email = req.user?.email;
+        const query = { email }
+        const currentUser = await userCollections.findOne(query)
+        if (!currentUser) {
+            return res.status(403).send({ message: 'Access denied. You are not an admin.' });
+        }
+        if(currentUser.role !== 'Admin') {
+            return res.status(403).send({ message: 'Access denied. You are not an admin.' });
+        }
+        next()
+    }
+
     try {
 
 
@@ -84,6 +109,12 @@ async function run() {
         })
 
 
+        // Admin Middleware
+        // Admin verification
+
+        
+
+
         // get popular rooms
 
         app.get('/popular_rooms', async (req, res) => {
@@ -96,7 +127,7 @@ async function run() {
         // get rooms from mongo_db
 
         app.get('/rooms', async (req, res) => {
-            const page =  parseInt(req.query.page);
+            const page = parseInt(req.query.page);
             const limit = parseInt(req.query.limit);
             const skip = (page - 1) * limit;
             const rooms = await roomsCollections.find()
@@ -171,13 +202,13 @@ async function run() {
 
         app.get('/booking', verifyUser, async (req, res) => {
             const currentUser = req?.user;
-            
+
             if (currentUser?.email != req.query.email) {
                 res.status(403).send({ message: 'Access denied. Invalid token.' });
             }
             let query = {};
             if (req.query?.email) {
-                query = { email: req.query?.email , orderStatus:{$ne:'Cancelled'}}
+                query = { email: req.query?.email, orderStatus: { $ne: 'Cancelled' } }
             }
 
             const result = await bookingCollections.find(query).toArray()
@@ -188,7 +219,7 @@ async function run() {
         // update booking status confirmed
 
         app.patch('/bookingStatus/:id', async (req, res) => {
-            const id = req.params.id;            
+            const id = req.params.id;
             const query = { _id: new ObjectId(id) }
             const orderStatus = req.query?.status;
             const updateStatus = {
@@ -220,12 +251,20 @@ async function run() {
 
         });
 
+        // delete booking
+        app.delete('/booking/:id', async (req, res) => {
+            const id = req.params.id;
+            const query = { _id: new ObjectId(id) };
+            const deleteResult = await bookingCollections.deleteOne(query);
+            res.send(deleteResult);
+        })
+
         // Room Status Update Available
 
         app.patch('/room_status/:id', async (req, res) => {
             const id = req.params?.id;
             const roomFilter = { _id: new ObjectId(id) };
-            const status = req.query.status;
+            const status = await req.query.status;
             
             const roomUpdateStatus = {
                 $set: { status }
@@ -253,6 +292,55 @@ async function run() {
             const result = await userCollections.insertOne(user);
             res.send(result);
         })
+
+        // get the all users
+        app.get('/users', verifyUser, verifyAdmin, async (req, res) => {
+            const result = await userCollections.find().toArray()
+            res.send(result)
+        })
+
+        // update user role 
+        app.patch('/users/:id', async (req, res) => {
+            const id = req.params.id;
+            const query = { _id: new ObjectId(id) };
+            const role = req.query?.role;
+            const updateRole = {
+                $set: { role }
+            }
+            const updateResult = await userCollections.updateOne(query, updateRole);
+            res.send(updateResult)
+        })
+        // delete user
+        app.delete('/users/:id', async (req, res) => {
+            const id = req.params.id;
+            const query = { _id: new ObjectId(id) };
+            const deleteResult = await userCollections.deleteOne(query);
+            res.send(deleteResult);
+        })
+
+        // Get Is Admin User
+        app.get('/is_admin/:email', verifyUser, async (req, res) => {
+            const email = req.params.email;
+            if (req.user.email !== email) {
+                return res.status(403).send({ message: 'Access denied. Invalid token.' });
+            }
+            const user = await userCollections.findOne({ email });
+            if (user.role === 'Admin') {
+                res.send({ isAdmin: true });
+            }
+            else {
+                res.send({ isAdmin: false });
+            }
+        })
+
+
+        // ------------------post related Api --------------------------------
+        app.post('/room', async (req, res)=>{
+            const room = req.body;
+            console.log(room);
+            
+        })
+
 
         // await client.db("admin").command({ ping: 1 });
         // console.log("Pinged your deployment. You successfully connected to MongoDB!");
