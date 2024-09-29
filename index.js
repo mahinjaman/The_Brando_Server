@@ -5,6 +5,7 @@ const app = express()
 const port = process.env.PORT || 3000;
 const jwt = require('jsonwebtoken')
 const cookieParser = require('cookie-parser')
+const stripe = require('stripe')(process.env.PAYMENT_SECRET_KEY)
 // middleware
 
 app.use(cors({
@@ -91,6 +92,7 @@ async function run() {
 
     try {
 
+        // ------------------post related Api --------------------------------
 
         // JWT Verify
 
@@ -109,10 +111,63 @@ async function run() {
         })
 
 
-        // Admin Middleware
-        // Admin verification
 
-        
+        // post new room
+        app.post('/rooms', verifyUser, verifyAdmin, async (req, res)=>{
+            const room = req.body;
+            const result = await roomsCollections.insertOne(room);
+            res.send(result);
+            
+        })
+
+
+        // Users Collections
+
+        // post new user
+        app.post('/users', async (req, res) => {
+            const user = req.body;
+            const email = req.body.email;
+            const query = { email };
+            const userExist = await userCollections.findOne(query);
+            if (userExist) {
+                return res.status(400).send({ message: 'User already exists' });
+            }
+            const result = await userCollections.insertOne(user);
+            res.send(result);
+        })
+
+
+        // room booking request
+
+        app.post('/booking', async (req, res) => {
+            const room = await req.body;
+            const result = await bookingCollections.insertOne(room);
+            res.send(result);
+        })
+
+
+        // Clear cookie
+        app.post('/log_out', async (req, res) => {
+            res.clearCookie('token');
+            res.send({ success: true });
+        })
+
+        // ------------------ Payment Related --------------------------------
+
+        app.post('/create-payment-intent', async (req, res) => {
+            const { price } = req.body;
+            const amount = parseInt(price * 100);
+            const paymentIntent = await stripe.paymentIntents.create({
+                amount,
+                currency: 'usd',
+            })
+
+            res.send({ clientSecret: paymentIntent.client_secret})
+        })
+
+
+        // ------------------get related Api --------------------------------
+
 
 
         // get popular rooms
@@ -180,24 +235,6 @@ async function run() {
             res.send(restaurantMenu)
         })
 
-        // get search room 
-
-
-
-        // Clear cookie
-        app.post('/log_out', async (req, res) => {
-            res.clearCookie('token');
-            res.send({ success: true });
-        })
-
-        // room booking request
-
-        app.post('/booking', async (req, res) => {
-            const room = await req.body;
-            const result = await bookingCollections.insertOne(room);
-            res.send(result);
-        })
-
         // get booking rooms for the current user
 
         app.get('/booking', verifyUser, async (req, res) => {
@@ -215,6 +252,40 @@ async function run() {
             res.send(result)
 
         })
+
+        // get all bookings room
+        app.get('/all_bookings', async (req, res) => {
+            const result = await bookingCollections.find().toArray()
+            res.send(result)
+        })
+
+        
+
+        // get the all users
+        app.get('/users', verifyUser, verifyAdmin, async (req, res) => {
+            const result = await userCollections.find().toArray()
+            res.send(result)
+        })
+
+         // Get Is Admin User
+         app.get('/is_admin/:email', verifyUser, async (req, res) => {
+            const email = req.params.email;
+            if (req.user.email !== email) {
+                return res.status(403).send({ message: 'Access denied. Invalid token.' });
+            }
+            const user = await userCollections.findOne({ email });
+            if (user?.role === 'Admin') {
+                res.send({ isAdmin: true });
+            }
+            else {
+                res.send({ isAdmin: false });
+            }
+        })
+
+
+
+        // ------------------patch and put related Api --------------------------------
+
 
         // update booking status confirmed
 
@@ -251,13 +322,7 @@ async function run() {
 
         });
 
-        // delete booking
-        app.delete('/booking/:id', async (req, res) => {
-            const id = req.params.id;
-            const query = { _id: new ObjectId(id) };
-            const deleteResult = await bookingCollections.deleteOne(query);
-            res.send(deleteResult);
-        })
+        
 
         // Room Status Update Available
 
@@ -273,31 +338,7 @@ async function run() {
             return res.send(roomUpdateResult)
         })
 
-        // get all bookings room
-        app.get('/all_bookings', async (req, res) => {
-            const result = await bookingCollections.find().toArray()
-            res.send(result)
-        })
-
-        // Users Collections
-
-        app.post('/users', async (req, res) => {
-            const user = req.body;
-            const email = req.body.email;
-            const query = { email };
-            const userExist = await userCollections.findOne(query);
-            if (userExist) {
-                return res.status(400).send({ message: 'User already exists' });
-            }
-            const result = await userCollections.insertOne(user);
-            res.send(result);
-        })
-
-        // get the all users
-        app.get('/users', verifyUser, verifyAdmin, async (req, res) => {
-            const result = await userCollections.find().toArray()
-            res.send(result)
-        })
+        
 
         // update user role 
         app.patch('/users/:id', async (req, res) => {
@@ -310,6 +351,20 @@ async function run() {
             const updateResult = await userCollections.updateOne(query, updateRole);
             res.send(updateResult)
         })
+        
+
+
+
+        // ------------------delete related Api --------------------------------
+
+        // delete specific room
+        app.delete('/delete_room/:id', verifyUser, verifyAdmin, async (req, res) => {
+            const id = req.params.id;
+            const query = { _id: new ObjectId(id) };
+            const deleteResult = await roomsCollections.deleteOne(query);
+            res.send(deleteResult);
+        })
+
         // delete user
         app.delete('/users/:id', async (req, res) => {
             const id = req.params.id;
@@ -318,29 +373,13 @@ async function run() {
             res.send(deleteResult);
         })
 
-        // Get Is Admin User
-        app.get('/is_admin/:email', verifyUser, async (req, res) => {
-            const email = req.params.email;
-            if (req.user.email !== email) {
-                return res.status(403).send({ message: 'Access denied. Invalid token.' });
-            }
-            const user = await userCollections.findOne({ email });
-            if (user.role === 'Admin') {
-                res.send({ isAdmin: true });
-            }
-            else {
-                res.send({ isAdmin: false });
-            }
+        // delete booking
+        app.delete('/booking/:id', async (req, res) => {
+            const id = req.params.id;
+            const query = { _id: new ObjectId(id) };
+            const deleteResult = await bookingCollections.deleteOne(query);
+            res.send(deleteResult);
         })
-
-
-        // ------------------post related Api --------------------------------
-        app.post('/room', async (req, res)=>{
-            const room = req.body;
-            console.log(room);
-            
-        })
-
 
         // await client.db("admin").command({ ping: 1 });
         // console.log("Pinged your deployment. You successfully connected to MongoDB!");
