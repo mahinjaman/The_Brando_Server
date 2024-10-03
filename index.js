@@ -24,9 +24,9 @@ const verifyUser = (req, res, next) => {
         return res.status(401).send({ message: 'UnAuthorized' })
     }
 
-    jwt.verify(token, process.env.SECURITY_JWT_TOKEN, (error, decode) => {
+    jwt.verify(token, process.env.SECURITY_JWT_TOKEN, (error, decoded) => {
         if (error) return res.status(403).json({ message: 'Access denied. Invalid token.' });
-        req.user = decode;
+        req.user = decoded;
         next();
     })
 }
@@ -69,8 +69,9 @@ async function run() {
     const latestNewsCollections = client.db('TheBrando').collection('news');
     const testimonialsCollections = client.db('TheBrando').collection('testimonial');
     const restaurantCollections = client.db('TheBrando').collection('restaurant_menu');
-    const bookingCollections = client.db('TheBrando').collection('booking');
+    const cartCollections = client.db('TheBrando').collection('carts');
     const userCollections = client.db('TheBrando').collection('users');
+    const paymentCollections = client.db('TheBrando').collection('payments')
 
 
     const verifyAdmin = async (req, res, next) => {
@@ -84,7 +85,7 @@ async function run() {
         if (!currentUser) {
             return res.status(403).send({ message: 'Access denied. You are not an admin.' });
         }
-        if(currentUser.role !== 'Admin') {
+        if (currentUser.role !== 'Admin') {
             return res.status(403).send({ message: 'Access denied. You are not an admin.' });
         }
         next()
@@ -113,11 +114,11 @@ async function run() {
 
 
         // post new room
-        app.post('/rooms', verifyUser, verifyAdmin, async (req, res)=>{
+        app.post('/room', verifyUser, verifyAdmin, async (req, res) => {
             const room = req.body;
             const result = await roomsCollections.insertOne(room);
             res.send(result);
-            
+
         })
 
 
@@ -137,11 +138,11 @@ async function run() {
         })
 
 
-        // room booking request
+        // room cart request  100832148
 
-        app.post('/booking', async (req, res) => {
+        app.post('/cart', async (req, res) => {
             const room = await req.body;
-            const result = await bookingCollections.insertOne(room);
+            const result = await cartCollections.insertOne(room);
             res.send(result);
         })
 
@@ -154,15 +155,33 @@ async function run() {
 
         // ------------------ Payment Related --------------------------------
 
-        app.post('/create-payment-intent', async (req, res) => {
+        app.post('/create-payment-intents', async (req, res) => {
             const { price } = req.body;
+
             const amount = parseInt(price * 100);
+
             const paymentIntent = await stripe.paymentIntents.create({
                 amount,
-                currency: 'usd',
+                currency: "usd",
             })
+            res.send({ clientSecret: paymentIntent.client_secret })
+        })
 
-            res.send({ clientSecret: paymentIntent.client_secret})
+        // Payment list
+        app.post('/payment', async (req, res) => {
+            const payment = await req.body;
+            const result = await paymentCollections.insertOne(payment);
+
+            const query = {
+                _id: {
+                    $in: payment?.cart_ids.map(id=> new ObjectId(id))
+                }
+            };
+
+            const deleteCarts = await cartCollections.deleteMany(query);
+            console.log(deleteCarts);
+
+            res.send(result);
         })
 
 
@@ -235,9 +254,9 @@ async function run() {
             res.send(restaurantMenu)
         })
 
-        // get booking rooms for the current user
+        // get carts rooms for the current user
 
-        app.get('/booking', verifyUser, async (req, res) => {
+        app.get('/carts', verifyUser, async (req, res) => {
             const currentUser = req?.user;
 
             if (currentUser?.email != req.query.email) {
@@ -248,18 +267,18 @@ async function run() {
                 query = { email: req.query?.email, orderStatus: { $ne: 'Cancelled' } }
             }
 
-            const result = await bookingCollections.find(query).toArray()
+            const result = await cartCollections.find(query).toArray()
             res.send(result)
 
         })
 
-        // get all bookings room
-        app.get('/all_bookings', async (req, res) => {
-            const result = await bookingCollections.find().toArray()
+        // get all carts room
+        app.get('/all_carts', async (req, res) => {
+            const result = await cartCollections.find().toArray()
             res.send(result)
         })
 
-        
+
 
         // get the all users
         app.get('/users', verifyUser, verifyAdmin, async (req, res) => {
@@ -267,8 +286,8 @@ async function run() {
             res.send(result)
         })
 
-         // Get Is Admin User
-         app.get('/is_admin/:email', verifyUser, async (req, res) => {
+        // Get Is Admin User
+        app.get('/is_admin/:email', verifyUser, async (req, res) => {
             const email = req.params.email;
             if (req.user.email !== email) {
                 return res.status(403).send({ message: 'Access denied. Invalid token.' });
@@ -282,27 +301,47 @@ async function run() {
             }
         })
 
+        // get payment list
+
+        app.get('/payment-history/:email', verifyUser , async (req, res) => {
+            const email = req.params.email;
+            if(!email){
+                return res.status(401).send({ message: 'Unauthorize Access..!' });
+            }
+            
+
+            if(email !== req.user?.email){
+                return res.status(403).send({ message: 'Access denied. Invalid token.' });
+            }
+
+            const query = {email}
+            
+            const result = await paymentCollections.find(query).toArray();
+            res.send(result)
+            
+        })
+
 
 
         // ------------------patch and put related Api --------------------------------
 
 
-        // update booking status confirmed
+        // update Cart status confirmed
 
-        app.patch('/bookingStatus/:id', async (req, res) => {
+        app.patch('/cartStatus/:id', async (req, res) => {
             const id = req.params.id;
             const query = { _id: new ObjectId(id) }
             const orderStatus = req.query?.status;
             const updateStatus = {
                 $set: { orderStatus }
             }
-            const updateResult = await bookingCollections.updateOne(query, updateStatus);
+            const updateResult = await cartCollections.updateOne(query, updateStatus);
             res.send(updateResult)
         })
 
 
-        // update booking room status cancelled
-        app.put('/booking_cancelled/:id', verifyUser, async (req, res) => {
+        // update cart room status cancelled
+        app.put('/cart_cancelled/:id', verifyUser, async (req, res) => {
             const currentUser = req.body;
             const id = req.params.id;
 
@@ -316,13 +355,13 @@ async function run() {
                 $set: { orderStatus }
             }
 
-            const updateResult = await bookingCollections.updateOne(filter, updateStatus);
+            const updateResult = await cartCollections.updateOne(filter, updateStatus);
             res.send(updateResult);
 
 
         });
 
-        
+
 
         // Room Status Update Available
 
@@ -330,7 +369,7 @@ async function run() {
             const id = req.params?.id;
             const roomFilter = { _id: new ObjectId(id) };
             const status = await req.query.status;
-            
+
             const roomUpdateStatus = {
                 $set: { status }
             }
@@ -338,7 +377,7 @@ async function run() {
             return res.send(roomUpdateResult)
         })
 
-        
+
 
         // update user role 
         app.patch('/users/:id', async (req, res) => {
@@ -351,7 +390,7 @@ async function run() {
             const updateResult = await userCollections.updateOne(query, updateRole);
             res.send(updateResult)
         })
-        
+
 
 
 
@@ -373,11 +412,11 @@ async function run() {
             res.send(deleteResult);
         })
 
-        // delete booking
-        app.delete('/booking/:id', async (req, res) => {
+        // delete cart
+        app.delete('/cart/:id', async (req, res) => {
             const id = req.params.id;
             const query = { _id: new ObjectId(id) };
-            const deleteResult = await bookingCollections.deleteOne(query);
+            const deleteResult = await cartCollections.deleteOne(query);
             res.send(deleteResult);
         })
 
