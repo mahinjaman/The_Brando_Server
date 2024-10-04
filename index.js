@@ -71,7 +71,8 @@ async function run() {
     const restaurantCollections = client.db('TheBrando').collection('restaurant_menu');
     const cartCollections = client.db('TheBrando').collection('carts');
     const userCollections = client.db('TheBrando').collection('users');
-    const paymentCollections = client.db('TheBrando').collection('payments')
+    const paymentCollections = client.db('TheBrando').collection('payments');
+    const bookingsCollections = client.db('TheBrando').collection('bookings');
 
 
     const verifyAdmin = async (req, res, next) => {
@@ -138,7 +139,7 @@ async function run() {
         })
 
 
-        // room cart request  100832148
+        // room cart request
 
         app.post('/cart', async (req, res) => {
             const room = await req.body;
@@ -169,7 +170,9 @@ async function run() {
 
         // Payment list
         app.post('/payment', async (req, res) => {
-            const payment = await req.body;
+            const { payment } = await req.body;
+            const { confirmBookingRooms = [] } = await req.body;
+
             const result = await paymentCollections.insertOne(payment);
 
             const query = {
@@ -178,8 +181,28 @@ async function run() {
                 }
             };
 
+
+            const updateStatus = {
+                $set: { status: 'Booking' }
+            }
+
+
+            const roomUpdateQuery = {_id: { $in: payment?.room_ids.map(id=> new ObjectId(id))}}
+
             const deleteCarts = await cartCollections.deleteMany(query);
+
+            const updateRooms = await roomsCollections.updateMany(roomUpdateQuery, updateStatus)
+
+            
+
+            confirmBookingRooms.map( async room =>{
+                const bookingResult = await bookingsCollections.insertOne(room)
+                console.log(bookingResult);
+                
+            })
+
             console.log(deleteCarts);
+            console.log(updateRooms);
 
             res.send(result);
         })
@@ -319,6 +342,21 @@ async function run() {
             const result = await paymentCollections.find(query).toArray();
             res.send(result)
             
+        })
+
+        // get confirm booking rooms
+        app.get('/confirm-booking/:email', verifyUser , async (req, res)=>{
+            const email = req.params.email;
+            
+            if(!email){
+                return res.status(401).send({ message: 'Unauthorize Access..!' });
+            }
+            if(email !== req.user.email){
+                return res.status(403).send({ message: 'Access denied. Invalid token.' });
+            }
+            const query = { email : email};
+            const result = await bookingsCollections.find().toArray();
+            res.send(result)
         })
 
 
