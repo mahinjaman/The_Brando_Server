@@ -10,8 +10,8 @@ const stripe = require('stripe')(process.env.PAYMENT_SECRET_KEY)
 
 app.use(cors({
     credentials: true,
-    origin: ['http://localhost:5173', 'http://localhost:5174']
-    // origin: ['https://the-brando.web.app', 'https://console.firebase.google.com/project/the-brando/overview']
+    // origin: ['http://localhost:5173', 'http://localhost:5174']
+    origin: ['https://the-brando.web.app', 'https://console.firebase.google.com/project/the-brando/overview']
 }))
 app.use(express.json())
 app.use(cookieParser())
@@ -49,7 +49,6 @@ app.get('/', (req, res) => {
 
 
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
-const e = require('express');
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.oqwbmox.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
 
 // Create a MongoClient with a MongoClientOptions object to set the Stable API version
@@ -197,12 +196,9 @@ async function run() {
 
             confirmBookingRooms.map( async room =>{
                 const bookingResult = await bookingsCollections.insertOne(room)
-                console.log(bookingResult);
                 
             })
 
-            console.log(deleteCarts);
-            console.log(updateRooms);
 
             res.send(result);
         })
@@ -355,17 +351,117 @@ async function run() {
                 return res.status(403).send({ message: 'Access denied. Invalid token.' });
             }
             const query = { email : email};
+            const result = await bookingsCollections.find(query).toArray();
+            res.send(result)
+        })
+
+        // Only Use Administrator
+
+        const admin_secret = process.env.ADMIN_SECRET_TOKEN;
+
+
+        app.get('/all-bookings/:admin_secret' , async (req, res)=>{
+            const adminSecret = req.params.admin_secret;
+            if(adminSecret !==  admin_secret){
+                return res.status(401).send({ message: 'Unauthorize Access..!' });
+            }
             const result = await bookingsCollections.find().toArray();
             res.send(result)
         })
 
+
+        // Get Admin States
+
+        app.get('/admin-stats/:email', verifyUser, verifyAdmin, async (req, res)=>{
+
+            if(req.params.email !== req.user.email){
+                return res.status(403).send({ message: 'Access denied. Invalid token.' });
+            }
+
+            const totalRooms = await roomsCollections.estimatedDocumentCount();
+            const totalUsers = await userCollections.estimatedDocumentCount();
+            const totalBookings = await bookingsCollections.estimatedDocumentCount();
+            const totalPayments = await paymentCollections.estimatedDocumentCount();
+            // const totalRevenue = await paymentCollections.aggregate([
+            //     {
+            //         $group: {
+            //         _id: null,
+            //         totalRevenue: { $sum: "$amount" }
+            //     }
+            // }
+            // ])
+
+            const totalRevenueResult = await paymentCollections.aggregate([
+                {
+                    $group: {
+                        _id: null,
+                        totalRevenue: { $sum: "$amount" }
+                    }
+                }
+            ]).toArray()
+
+            const totalRevenue = totalRevenueResult[0]?.totalRevenue || 0;
+
+
+            res.send({
+                totalRooms,
+                totalUsers,
+                totalBookings,
+                totalPayments,
+                totalRevenue
+            })
+        })
+
+        // get payment stats
+
+        app.get('/bookings-stats', verifyUser , verifyAdmin, async (req, res) => {
+
+            try {
+                const result = await paymentCollections.aggregate([
+                    {
+                        $unwind: '$room_ids'
+                    },
+                    {
+                        $addFields: {
+                            room_ids: { $toObjectId: "$room_ids" }
+                        }
+                    },
+                    {
+                        $lookup: {
+                            from: 'rooms',
+                            localField:'room_ids',
+                            foreignField: "_id",
+                            as: 'room'
+                        }
+                    },
+                    {
+                        $unwind: '$room' 
+                    },
+                    {
+                        $group: {
+                            _id: '$room.title',
+                            totalBookings: { $sum: 1 },
+                            totalRevenue: { $sum: '$amount' },
+                        }
+                    }
+                ]).toArray();
+        
+                res.send(result);
+            } catch (error) {
+                console.error('Error fetching booking stats:', error);
+                res.status(500).send({ error: 'An error occurred while fetching booking stats' });
+            }
+        });
+
+        
+
+        
 
 
         // ------------------patch and put related Api --------------------------------
 
 
         // update Cart status confirmed
-
         app.patch('/cartStatus/:id', async (req, res) => {
             const id = req.params.id;
             const query = { _id: new ObjectId(id) }
@@ -407,7 +503,6 @@ async function run() {
             const id = req.params?.id;
             const roomFilter = { _id: new ObjectId(id) };
             const status = await req.query.status;
-
             const roomUpdateStatus = {
                 $set: { status }
             }
@@ -427,6 +522,21 @@ async function run() {
             }
             const updateResult = await userCollections.updateOne(query, updateRole);
             res.send(updateResult)
+        })
+
+        // Update Booking Status 
+
+        app.patch(`/update-bookings/:id`, async (req, res) => {
+            const id = req.params.id;
+            const status = req.query.status;
+            const filter = {_id: new ObjectId(id)}
+            const updateStatus = {
+                $set: { status }
+            }
+
+            const updateResult = await bookingsCollections.updateOne(filter, updateStatus)
+
+            res.send(updateResult);
         })
 
 
